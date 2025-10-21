@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>🧠 数字記憶トレーニング</title>
+<style>
+  body { background:#0f172a; color:#e5e7eb; font-family: system-ui; margin:0; padding:20px;}
+  h1 { margin-bottom:10px; }
+
+  .number-box {
+    font-size: 28px;
+    letter-spacing: 4px;
+    padding: 20px;
+    background: #1e293b;
+    border-radius: 12px;
+    margin: 20px 0 10px;
+    word-wrap: break-word;
+    white-space: normal;
+    overflow-wrap: break-word;
+    text-align: center;
+  }
+
+  .progress-container {
+    width: 100%;
+    height: 10px;
+    background: #1e293b;
+    border-radius: 999px;
+    overflow: hidden;
+    margin-bottom: 10px;
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #22c55e, #84cc16);
+    width: 100%;
+    transition: width 0.2s linear;
+  }
+
+  textarea { width:100%; height:80px; font-size:18px; padding:10px; background:#1e293b; color:#fff; border:none; border-radius:8px;}
+  button { padding:10px 16px; border:none; border-radius:8px; cursor:pointer; font-weight:bold; }
+  .primary { background:#22c55e; color:#052e16; }
+  .ghost { background:#1e293b; color:#e5e7eb; border:1px solid #334155; }
+  .danger { background:#ef4444; color:white; }
+  .pill { display:inline-block; background:#1e293b; padding:6px 12px; margin:4px; border-radius:999px; }
+  #chart { background:#1e293b; border-radius:12px; margin-top:20px; }
+  #countdownText { text-align:center; font-size:16px; color:#94a3b8; margin-bottom:5px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+
+<h1>🧠 数字記憶トレーニング</h1>
+
+<div>
+  <label>桁数：</label>
+  <input id="digitCount" type="number" min="1" max="100" value="20">
+  <label>表示秒数：</label>
+  <input id="seconds" type="number" min="3" max="60" value="15">
+  <button class="primary" id="startBtn">トレーニング開始 ▶</button>
+</div>
+
+<div class="number-box" id="numberDisplay"></div>
+<div id="countdownText"></div>
+<div class="progress-container"><div class="progress-bar" id="progressBar"></div></div>
+
+<div id="inputArea" hidden>
+  <h3>思い出して入力</h3>
+  <textarea id="answer"></textarea>
+  <br>
+  <button class="primary" id="checkBtn">採点</button>
+  <button class="ghost" id="retryBtn">⟲ やり直し</button>
+</div>
+
+<div id="resultArea" hidden>
+  <h3>結果</h3>
+  <div class="pill">正答率：<span id="accuracyText">0</span>%</div>
+  <div class="pill">スコア：<span id="scoreText">0</span></div>
+  <div class="pill">時間：<span id="timeText">0</span>秒</div>
+  <div class="pill">一致数：<span id="hitText">0</span></div>
+  <br>
+  <button class="primary" id="nextBtn">次のラウンド ▶</button>
+</div>
+
+<h2>🏅 称号</h2>
+<div id="titleDisplay" class="pill">まだ称号はありません</div>
+
+<h2>📊 スコア推移</h2>
+<canvas id="chart"></canvas>
+
+<div style="margin-top:10px;">
+  <button class="ghost" id="exportCsv">CSVエクスポート</button>
+  <button class="danger" id="clearHist">履歴リセット</button>
+</div>
+
+<script>
+const display = document.getElementById("numberDisplay");
+const inputArea = document.getElementById("inputArea");
+const resultArea = document.getElementById("resultArea");
+const answerEl = document.getElementById("answer");
+const accuracyEl = document.getElementById("accuracyText");
+const scoreEl = document.getElementById("scoreText");
+const timeEl = document.getElementById("timeText");
+const hitEl = document.getElementById("hitText");
+const countdownText = document.getElementById("countdownText");
+const progressBar = document.getElementById("progressBar");
+
+let correctNumber = "";
+let timer = null;
+let countdownTimer = null;
+let history = JSON.parse(localStorage.getItem("digit_history") || "[]");
+let chartInstance = null;
+
+// ===== 数字列生成 =====
+function generateDigits(len) {
+  let result = "";
+  for (let i = 0; i < len; i++) result += Math.floor(Math.random() * 10);
+  return result;
+}
+
+// ===== フォントサイズ自動調整 =====
+function adjustFontSize() {
+  const len = correctNumber.length;
+  if (len <= 20) display.style.fontSize = "28px";
+  else if (len <= 50) display.style.fontSize = "22px";
+  else display.style.fontSize = "18px";
+}
+
+// ===== トレーニング開始 =====
+document.getElementById("startBtn").addEventListener("click", () => {
+  const len = Number(document.getElementById("digitCount").value);
+  const sec = Number(document.getElementById("seconds").value);
+  correctNumber = generateDigits(len);
+  adjustFontSize();
+  display.textContent = correctNumber;
+  inputArea.hidden = true;
+  resultArea.hidden = true;
+
+  let remaining = sec;
+  countdownText.textContent = `残り ${remaining} 秒`;
+  progressBar.style.width = "100%";
+
+  clearInterval(countdownTimer);
+  countdownTimer = setInterval(() => {
+    remaining--;
+    countdownText.textContent = `残り ${remaining} 秒`;
+    const progress = (remaining / sec) * 100;
+    progressBar.style.width = progress + "%";
+    if (remaining <= 0) clearInterval(countdownTimer);
+  }, 1000);
+
+  clearTimeout(timer);
+  timer = setTimeout(() => {
+    display.textContent = "🙈";
+    countdownText.textContent = "";
+    progressBar.style.width = "0%";
+    inputArea.hidden = false;
+    answerEl.value = "";
+    answerEl.focus();
+  }, sec * 1000);
+});
+
+// ===== 採点 =====
+document.getElementById("checkBtn").addEventListener("click", () => {
+  clearInterval(countdownTimer);
+  const ans = answerEl.value.trim();
+  let hit = 0;
+  for (let i = 0; i < correctNumber.length; i++) {
+    if (ans[i] === correctNumber[i]) hit++;
+  }
+
+  const acc = Math.round((hit / correctNumber.length) * 100);
+  const time = Number(document.getElementById("seconds").value);
+  const score = Math.round(acc * (60 / time));
+
+  accuracyEl.textContent = acc;
+  scoreEl.textContent = score;
+  timeEl.textContent = time;
+  hitEl.textContent = hit;
+
+  history.push({
+    timestamp: new Date().toLocaleString(),
+    accuracy: acc,
+    time: time,
+    score: score
+  });
+  localStorage.setItem("digit_history", JSON.stringify(history));
+
+  resultArea.hidden = false;
+  inputArea.hidden = true;
+  updateTitles();
+  drawChart();
+});
+
+// ===== 称号更新 =====
+function updateTitles(){
+  if (history.length === 0) return;
+  const avgScore = Math.round(history.reduce((a,b)=>a+b.score,0)/history.length);
+  const titles = [];
+  if (avgScore >= 800) titles.push("🚀 神速の記憶王");
+  else if (avgScore >= 600) titles.push("⚡ 高速記憶マスター");
+  else if (avgScore >= 400) titles.push("📘 安定記憶の達人");
+
+  document.getElementById("titleDisplay").innerHTML = titles.length
+    ? titles.map(t=>`<span class="pill">${t}</span>`).join("")
+    : `<span class="pill">まだ称号はありません</span>`;
+}
+
+// ===== グラフ描画 =====
+function drawChart(){
+  const labels = history.map(h=>h.timestamp);
+  const accValues = history.map(h=>h.accuracy);
+  const scoreValues = history.map(h=>h.score);
+
+  const ctx = document.getElementById("chart").getContext("2d");
+  if(chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(ctx,{
+    type:"line",
+    data:{
+      labels,
+      datasets:[
+        {label:"正答率", data:accValues, borderColor:"#22c55e", tension:0.2},
+        {label:"スコア", data:scoreValues, borderColor:"#3b82f6", tension:0.2}
+      ]
+    },
+    options:{ responsive:true, scales:{ y:{ beginAtZero:true, suggestedMax:1000 } } }
+  });
+}
+
+// ===== CSVエクスポート =====
+document.getElementById("exportCsv").addEventListener("click", () => {
+  if (!history.length) { alert("履歴がありません"); return; }
+  const header = ["No","日時","正答率(%)","表示秒数","スコア"];
+  const rows = history.map((h,i)=>[i+1,h.timestamp,h.accuracy,h.time,h.score]);
+  const csv = [header,...rows].map(r=>r.join(",")).join("\n");
+  const blob = new Blob([csv],{type:"text/csv"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "digit_memory_history.csv";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+// ===== 履歴クリア =====
+document.getElementById("clearHist").addEventListener("click", () => {
+  if (!confirm("履歴をすべて削除しますか？")) return;
+  history = [];
+  localStorage.removeItem("digit_history");
+  updateTitles();
+  drawChart();
+  alert("履歴をクリアしました");
+});
+
+document.getElementById("retryBtn").addEventListener("click", () => {
+  inputArea.hidden = false;
+  resultArea.hidden = true;
+  answerEl.value = "";
+  answerEl.focus();
+});
+
+document.getElementById("nextBtn").addEventListener("click", () => {
+  resultArea.hidden = true;
+  display.textContent = "";
+});
+
+drawChart();
+updateTitles();
+</script>
+</body>
+</html>
